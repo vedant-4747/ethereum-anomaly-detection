@@ -9,6 +9,7 @@ are persisted to SQLite via the database module.
 import os
 import time
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from web3 import Web3
 from dotenv import load_dotenv
 
@@ -125,11 +126,22 @@ def main() -> None:
         try:
             latest = w3.eth.block_number
             if latest > last_processed:
-                for block_num in range(last_processed + 1, latest + 1):
-                    process_block(w3, block_num, detector)
+                blocks_to_process = list(range(last_processed + 1, latest + 1))
+                # Process blocks concurrently to speed up sync
+                with ThreadPoolExecutor(max_workers=5) as executor:
+                    futures = [
+                        executor.submit(process_block, w3, block_num, detector)
+                        for block_num in blocks_to_process
+                    ]
+                    for future in as_completed(futures):
+                        try:
+                            future.result()
+                        except Exception as exc:
+                            logger.error("Error processing block in thread: %s", exc)
                 last_processed = latest
-            # Ethereum block time ≈ 12 s; polling every 10 s keeps lag minimal
-            time.sleep(10)
+            else:
+                # Ethereum block time ≈ 12 s; polling every 10 s keeps lag minimal
+                time.sleep(10)
 
         except KeyboardInterrupt:
             logger.info("Monitor stopped by user.")

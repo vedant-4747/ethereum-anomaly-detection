@@ -215,11 +215,19 @@ with st.sidebar:
     st.markdown("[Etherscan](https://etherscan.io)")
 
 # ─── Shared data fetch ────────────────────────────────────────────────
-stats    = database.get_stats()
+@st.cache_data(ttl=5)
+def fetch_stats():
+    return database.get_stats()
+
+stats    = fetch_stats()
 total    = stats.get("total_anomalies", 0)
 by_type  = stats.get("anomalies_by_type", {})
 high_cnt = by_type.get("High Value Transfer", 0)
 med_cnt  = sum(v for k, v in by_type.items() if "Gas" in k or "Contract" in k)
+
+@st.cache_data(ttl=5)
+def fetch_recent_anomalies(limit):
+    return database.get_recent_anomalies(limit=limit)
 
 # ═══════════════════════════════════════════════════════════════════════
 # PAGE FUNCTIONS
@@ -330,7 +338,7 @@ def page_anomalies():
     c4.metric("🟢 Monitor",         "Active")
 
     st.divider()
-    records = database.get_recent_anomalies(limit=max_rows)
+    records = fetch_recent_anomalies(limit=max_rows)
 
     if not records:
         st.info("⏳ No anomalies detected yet — waiting for the monitor to find suspicious transactions.", icon="ℹ️")

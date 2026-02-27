@@ -8,8 +8,6 @@ services:
     command: python monitor.py
     env_file:
       - .env
-    volumes:
-      - monitor_data:/app
 
   dashboard:
     build: .
@@ -22,8 +20,3 @@ services:
       - .env
     depends_on:
       - monitor
-    volumes:
-      - monitor_data:/app
-
-volumes:
-  monitor_data:
