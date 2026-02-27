@@ -1,0 +1,6 @@
+.env
+__pycache__/
+.venv/
+anomalies.db
+*.pyc
+.DS_Store

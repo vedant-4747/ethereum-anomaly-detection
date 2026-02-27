@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pipeline Architecture Diagram</title>
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        mermaid.initialize({ 
+            startOnLoad: true, 
+            theme: 'base',
+            themeVariables: {
+                primaryColor: '#ffffff',
+                primaryBorderColor: '#000000',
+                lineColor: '#000000',
+                fontFamily: 'Arial',
+                fontSize: '14px'
+            }
+        });
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #f8f9fa;
+            margin: 0;
+            padding: 20px;
+        }
+        .diagram-container {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            max-width: 100%;
+            overflow-x: auto;
+            text-align: center;
+        }
+        h2 {
+            margin-bottom: 30px;
+            color: #333;
+        }
+        /* Style adjustments for print/export */
+        @media print {
+            body { background-color: white; }
+            .diagram-container { box-shadow: none; padding: 0; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="diagram-container">
+        <h2>Proposed System Architecture for On-chain Anomaly Detection</h2>
+        
+        <!-- Mermaid Diagram Definition -->
+        <div class="mermaid">
+            graph LR
+                classDef box fill:#ffffff,stroke:#000000,stroke-width:1.5px,color:#000000,font-family:Arial,font-size:14px;
+                classDef edgeLabel fill:#ffffff,font-family:Arial,font-size:12px;
+
+                DS["<b>Data Sources</b><br/><span style='font-size:12px'>BigQuery, Kaggle,<br/>Etherscan</span>"]:::box
+                DI["<b>Data Ingestion</b><br/><span style='font-size:12px'>Download, Sample,<br/>Format Storage</span>"]:::box
+                PC["<b>Preprocessing &<br/>Cleaning</b><br/><span style='font-size:12px'>Standardize, Normalize,<br/>Format</span>"]:::box
+                FE["<b>Feature<br/>Engineering</b><br/><span style='font-size:12px'>Aggregate Behavioral<br/>Features</span>"]:::box
+                MOD["<b>Modeling Layer</b><br/><span style='font-size:12px'>Unsupervised Detection<br/>Supervised Validation</span>"]:::box
+                EE["<b>Evaluation &<br/>Explainability</b><br/><span style='font-size:12px'>Metrics (ROC-AUC)<br/>& SHAP Plots</span>"]:::box
+                VR["<b>Visualization &<br/>Reporting</b><br/><span style='font-size:12px'>Dashboards, Conf.<br/>Matrices, Reports</span>"]:::box
+
+                DS --> DI
+                DI --> PC
+                PC --> FE
+                FE --> MOD
+                MOD --> EE
+                EE --> VR
+        </div>
+    </div>
+
+</body>
+</html>

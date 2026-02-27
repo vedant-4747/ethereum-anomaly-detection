@@ -1,0 +1,23 @@
+# render.yaml — Render Blueprint for ETHWatch monitor background worker
+# Deploy at: https://dashboard.render.com/select-repo
+#
+# This deploys monitor.py as a persistent background worker on Render's
+# free tier. It will run 24/7, scanning Ethereum blocks and writing
+# anomalies to your shared PostgreSQL database (Supabase).
+
+services:
+  - type: worker
+    name: eth-anomaly-monitor
+    runtime: python
+    plan: free                          # Upgrade for guaranteed uptime
+    buildCommand: pip install -r requirements.txt
+    startCommand: python monitor.py
+    envVars:
+      - key: ETH_RPC_URL
+        sync: false                     # Set manually in Render dashboard
+      - key: DATABASE_URL
+        sync: false                     # Set manually in Render dashboard
+      - key: HIGH_VALUE_THRESHOLD
+        value: "10"
+      - key: HIGH_GAS_PRICE_THRESHOLD
+        value: "100"

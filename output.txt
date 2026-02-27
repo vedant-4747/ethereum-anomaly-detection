@@ -1,0 +1,37 @@
+2026-02-27 02:08:54,743 [INFO] Monitor: Connected to Ethereum node at https://cloudflare-eth.com
+2026-02-27 02:08:54,744 [INFO] detector: AnomalyDetector ready | value\u226510 ETH | gas\u2265100 Gwei | gas_limit\u22655000000
+2026-02-27 02:08:54,746 [INFO] database: Database initialized successfully.
+Traceback (most recent call last):
+  File "C:\Codes\BC\Anamoly detection\monitor.py", line 143, in <module>
+    main()
+    ~~~~^^
+  File "C:\Codes\BC\Anamoly detection\monitor.py", line 121, in main
+    last_processed = w3.eth.block_number
+                     ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\admin\AppData\Roaming\Python\Python314\site-packages\web3\eth\eth.py", line 145, in block_number
+    return self.get_block_number()
+           ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\admin\AppData\Roaming\Python\Python314\site-packages\web3\module.py", line 112, in caller
+    result = w3.manager.request_blocking(
+        method_str, params, error_formatters, null_result_formatters
+    )
+  File "C:\Users\admin\AppData\Roaming\Python\Python314\site-packages\web3\manager.py", line 233, in request_blocking
+    return self.formatted_response(
+           ~~~~~~~~~~~~~~~~~~~~~~~^
+        response, params, error_formatters, null_result_formatters
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\AppData\Roaming\Python\Python314\site-packages\web3\manager.py", line 199, in formatted_response
+    validate_rpc_response_and_raise_if_error(
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        response,
+        ^^^^^^^^^
+    ...<3 lines>...
+        params=params,
+        ^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\admin\AppData\Roaming\Python\Python314\site-packages\web3\_utils\validation.py", line 401, in validate_rpc_response_and_raise_if_error
+    raise web3_rpc_error
+web3.exceptions.Web3RPCError: {'code': -32046, 'message': 'Cannot fulfill request'}

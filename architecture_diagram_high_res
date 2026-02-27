@@ -1,0 +1,26 @@
+// IEEE Architecture Diagram
+digraph {
+	fontname=Arial rankdir=LR
+	node [fontname=Arial fontsize=12 margin=0.2 shape=box style=solid]
+	edge [fontname=Arial fontsize=10]
+	DS [label="Data Sources
+(BigQuery, Kaggle, Etherscan)"]
+	DI [label="Data Ingestion
+(Download, Sample, Storage)"]
+	PC [label="Preprocessing & Cleaning
+(Standardize, Normalize)"]
+	FE [label="Feature Engineering
+(Aggregate Behaviors)"]
+	MOD [label="Modeling Layer
+(Unsupervised & Supervised)"]
+	EE [label="Evaluation & Explainability
+(Metrics & SHAP)"]
+	VR [label="Visualization & Reporting
+(Dashboards & Reports)"]
+	DS -> DI
+	DI -> PC
+	PC -> FE
+	FE -> MOD
+	MOD -> EE
+	EE -> VR
+}
