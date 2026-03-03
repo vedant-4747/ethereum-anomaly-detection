@@ -56,8 +56,8 @@ def _format_tx(w3: Web3, raw_tx) -> dict | None:
             "block_number":   raw_tx.get("blockNumber"),
             "from":           raw_tx.get("from",  "Unknown"),
             "to":             raw_tx.get("to",    "Unknown"),
-            "value_eth":      float(w3.from_wei(value_wei,     "ether")),
-            "gas_price_gwei": float(w3.from_wei(gas_price_wei, "gwei")),
+            "value_eth":      float(value_wei) / 1e18,
+            "gas_price_gwei": float(gas_price_wei) / 1e9,
             "gas":            raw_tx.get("gas", 0),
         }
     except Exception as exc:

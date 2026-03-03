@@ -211,7 +211,7 @@ with st.sidebar:
         default=["HIGH", "MEDIUM", "LOW"],
     )
     st.divider()
-    st.markdown("**Data source:** `anomalies.db` (SQLite)")
+    st.markdown("**Data source:** `PostgreSQL (Supabase)`")
     st.markdown("[Etherscan](https://etherscan.io)")
 
 # ─── Shared data fetch ────────────────────────────────────────────────

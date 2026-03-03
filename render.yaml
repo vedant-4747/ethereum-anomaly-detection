@@ -1,11 +1,42 @@
-# render.yaml — Render Blueprint for ETHWatch monitor background worker
-# Deploy at: https://dashboard.render.com/select-repo
+# render.yaml — Render Blueprint for ETHWatch
+# Deploy at: https://dashboard.render.com/select-repo → New Blueprint
 #
-# This deploys monitor.py as a persistent background worker on Render's
-# free tier. It will run 24/7, scanning Ethereum blocks and writing
-# anomalies to your shared PostgreSQL database (Supabase).
+# This file deploys TWO services from the same repo:
+#   1. eth-anomaly-dashboard  — Streamlit UI (Web Service, publicly accessible)
+#   2. eth-anomaly-monitor    — Block scanner (Background Worker, 24/7)
+# Both share the same Supabase PostgreSQL database.
 
 services:
+
+  # ── 1. Streamlit Dashboard (Web Service) ──────────────────────────────
+  - type: web
+    name: eth-anomaly-dashboard
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # $PORT is injected by Render; --server.address 0.0.0.0 makes
+    # Streamlit listen on all interfaces so Render's proxy can reach it.
+    startCommand: >-
+      python -m streamlit run app.py
+      --server.port $PORT
+      --server.address 0.0.0.0
+      --server.enableCORS false
+      --server.enableXsrfProtection false
+      --server.headless true
+    healthCheckPath: /
+    envVars:
+      - key: ETH_RPC_URL
+        sync: false                     # Set manually in Render dashboard
+      - key: DATABASE_URL
+        sync: false                     # Set manually in Render dashboard
+      - key: HIGH_VALUE_THRESHOLD
+        value: "10"
+      - key: HIGH_GAS_PRICE_THRESHOLD
+        value: "100"
+      - key: PYTHON_VERSION
+        value: "3.10.0"
+
+  # ── 2. Monitor Background Worker ─────────────────────────────────────
   - type: worker
     name: eth-anomaly-monitor
     runtime: python
@@ -21,3 +52,5 @@ services:
         value: "10"
       - key: HIGH_GAS_PRICE_THRESHOLD
         value: "100"
+      - key: PYTHON_VERSION
+        value: "3.10.0"
