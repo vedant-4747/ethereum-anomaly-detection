@@ -1,6 +1,10 @@
 # ETHWatch — Ethereum On-chain Anomaly Detection
 
+[![Live Demo](https://img.shields.io/badge/Live-Dashboard-blue)](https://eth-anomaly-dashboard.onrender.com)
+
 A production-ready pipeline for monitoring the Ethereum blockchain in real-time, detecting anomalous transactions, and visualizing them on a Streamlit dashboard.
+
+![ETHWatch Dashboard Screenshot](assets/dashboard-screenshot.png) 
 
 ## Overview
 
@@ -15,13 +19,13 @@ This project consists of two main components:
 
 ## Project Structure
 
-```
+```text
 ├── app.py              # Streamlit Dashboard UI
 ├── database.py         # PostgreSQL Database connection and schema
 ├── detector.py         # Anomaly detection logic
 ├── monitor.py          # Block scanner that feeds the database
 ├── requirements.txt    # Python dependencies
-├── render.yaml         # Render.com Blueprint for monitor deployment
+├── render.yaml         # Render.com Blueprint for deployment
 ├── .env.example        # Example environment configuration
 └── docker-compose.yml  # (Legacy) Local Docker setup
 ```
@@ -68,19 +72,18 @@ streamlit run app.py
 
 ---
 
-## Cloud Deployment (Production)
+### Cloud Deployment (Production)
 
-### Deploy the Dashboard → Streamlit Community Cloud
+Deploy the Dashboard & Monitor → Render
+1. Go to https://render.com and log into your account.
+2. Click New → Web Service to deploy the Streamlit Dashboard (app.py), or use New → Blueprint if you are deploying both the     dashboard and the background worker using your render.yaml file.
+3. Connect your GitHub repository.
+4. Add the following environment variables in the Render dashboard under your service settings:
+   ETH_RPC_URL — your Alchemy or Infura endpoint
+   DATABASE_URL — your Supabase PostgreSQL connection string
+5. Click Deploy.
 
-1. Push the project to a **public or private GitHub repository**.
-2. Go to [https://share.streamlit.io](https://share.streamlit.io) and connect your repository.
-3. Set **Main file path** to `app.py`.
-4. Add your secrets under **Advanced Settings**:
-   ```toml
-   DATABASE_URL = "postgresql://..."
-   ETH_RPC_URL  = "https://..."
-   ```
-5. Click **Deploy**.
+Architecture: Both the Render web service (dashboard) and the monitor script connect to the same Supabase PostgreSQL database. Anomalies found by the monitor appear on the live dashboard in real-time.
 
 ### Deploy the Monitor → Render Background Worker
 
