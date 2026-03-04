@@ -1,22 +1,21 @@
 """
 database.py — PostgreSQL database layer for Ethereum On-chain Anomaly Detection.
 
-Uses psycopg2. Reads DATABASE_URL from the environment (set in .env or cloud secrets).
-
-Example DATABASE_URL:
-    postgresql://postgres:password@db.xxxx.supabase.co:5432/postgres
+Uses psycopg2 with a conservative connection pool (max 5) safe for Supabase free tier.
+Includes automatic reconnection on stale connections.
 """
 
 import os
 import logging
+import time
 from typing import List, Dict, Any
+from contextlib import contextmanager
 
 import psycopg2
 import psycopg2.extras
-from psycopg2 import pool
+from psycopg2 import pool, OperationalError
 from dotenv import load_dotenv
 
-# Force override=True so cached terminal variables don't ignore the .env file!
 load_dotenv(override=True)
 
 logger = logging.getLogger(__name__)
@@ -30,26 +29,73 @@ if not DATABASE_URL:
         "  DATABASE_URL=postgresql://user:password@host:5432/dbname"
     )
 
-_pool = None
+# Supabase free tier allows ~15 connections total across ALL services.
+# Keep pool small so monitor + dashboard can coexist safely.
+_pool: pool.ThreadedConnectionPool | None = None
+_POOL_MIN = 1
+_POOL_MAX = 5   # conservative — leaves headroom for dashboard connections
 
-def init_pool():
+
+def _create_pool() -> pool.ThreadedConnectionPool:
+    return pool.ThreadedConnectionPool(
+        _POOL_MIN, _POOL_MAX, DATABASE_URL, sslmode="require",
+        connect_timeout=10,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=5,
+    )
+
+
+def init_pool() -> None:
     global _pool
     if _pool is None:
-        _pool = pool.ThreadedConnectionPool(1, 20, DATABASE_URL, sslmode="require")
-        logger.info("Database connection pool initialized.")
+        _pool = _create_pool()
+        logger.info("Database connection pool initialized (min=%d, max=%d).", _POOL_MIN, _POOL_MAX)
 
-from contextlib import contextmanager
 
 @contextmanager
 def get_connection():
-    """Return a managed connection from the thread-safe pool."""
+    """Return a managed connection from the thread-safe pool.
+    Transparently recreates the pool if it has been closed or corrupted."""
+    global _pool
     if _pool is None:
         init_pool()
-    conn = _pool.getconn()
+
+    conn = None
+    retries = 3
+    for attempt in range(retries):
+        try:
+            conn = _pool.getconn()
+            # Test the connection is still alive
+            conn.cursor().execute("SELECT 1")
+            break
+        except (OperationalError, psycopg2.InterfaceError) as exc:
+            logger.warning("Stale connection (attempt %d/%d): %s — resetting pool.", attempt + 1, retries, exc)
+            # close the bad connection and recreate the pool
+            try:
+                if conn:
+                    _pool.putconn(conn, close=True)
+            except Exception:
+                pass
+            try:
+                _pool.closeall()
+            except Exception:
+                pass
+            _pool = _create_pool()
+            time.sleep(1)
+            conn = _pool.getconn()
+
     try:
         yield conn
+    except Exception:
+        conn.rollback()
+        raise
     finally:
-        _pool.putconn(conn)
+        try:
+            _pool.putconn(conn)
+        except Exception:
+            pass
 
 
 def init_db() -> None:
@@ -116,14 +162,10 @@ def insert_anomalies(anomalies: List[Dict[str, Any]]) -> None:
         ON CONFLICT (tx_hash) DO NOTHING
     """
     with get_connection() as conn:
-        try:
-            with conn.cursor() as cur:
-                psycopg2.extras.execute_batch(cur, sql, anomalies, page_size=100)
-            conn.commit()
-            logger.info("Inserted %d anomalies (duplicates skipped).", len(anomalies))
-        except Exception as exc:
-            conn.rollback()
-            logger.error("insert_anomalies failed: %s", exc)
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_batch(cur, sql, anomalies, page_size=100)
+        conn.commit()
+    logger.info("Inserted %d anomalies (duplicates skipped).", len(anomalies))
 
 
 def get_recent_anomalies(limit: int = 50) -> List[Dict[str, Any]]:
@@ -158,6 +200,19 @@ def get_stats() -> Dict[str, Any]:
         except Exception as exc:
             logger.error("get_stats failed: %s", exc)
             return {"total_anomalies": 0, "anomalies_by_type": {}}
+
+
+def get_latest_block() -> int:
+    """Return the highest block_number stored in the DB (0 if none)."""
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT MAX(block_number) FROM anomalies")
+                result = cur.fetchone()[0]
+                return result or 0
+        except Exception as exc:
+            logger.error("get_latest_block failed: %s", exc)
+            return 0
 
 
 if __name__ == "__main__":

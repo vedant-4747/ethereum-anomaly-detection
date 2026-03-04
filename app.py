@@ -3,6 +3,7 @@ app.py — Streamlit dashboard for Ethereum On-chain Anomaly Detection.
 """
 
 import datetime
+import time
 from dotenv import load_dotenv
 load_dotenv(override=True)   # Always read .env before anything else
 
@@ -249,9 +250,30 @@ def fetch_stats():
 def fetch_recent_anomalies(limit: int):
     return database.get_recent_anomalies(limit=limit)
 
+@st.cache_data(ttl=30)
+def fetch_latest_block() -> int:
+    return database.get_latest_block()
+
 def _last_updated_pill() -> str:
     now = datetime.datetime.utcnow().strftime("%H:%M:%S UTC")
     return f'<span class="ts-pill">🕒 Updated {now}</span>'
+
+def _monitor_staleness_banner(records: list) -> None:
+    """Show a warning if the newest DB record is older than 30 minutes."""
+    if not records:
+        return
+    try:
+        newest_ts = pd.to_datetime(records[0]["timestamp"], utc=True)
+        age_minutes = (pd.Timestamp.utcnow() - newest_ts).total_seconds() / 60
+        if age_minutes > 30:
+            st.warning(
+                f"⚠️ **Monitor may be down.** The newest anomaly is "
+                f"**{int(age_minutes)} minutes** old. "
+                "Check the Render Background Worker logs.",
+                icon="⚠️",
+            )
+    except Exception:
+        pass
 
 # ═══════════════════════════════════════════════════════════════════════
 # PAGE FUNCTIONS
@@ -377,6 +399,7 @@ def page_anomalies():
 
     st.divider()
     records = fetch_recent_anomalies(limit=max_rows)
+    _monitor_staleness_banner(records)
 
     if not records:
         st.info("⏳ No anomalies detected yet — waiting for the monitor to find suspicious transactions.", icon="ℹ️")
