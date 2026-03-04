@@ -8,7 +8,7 @@ Includes automatic reconnection on stale connections.
 import os
 import logging
 import time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from contextlib import contextmanager
 
 import psycopg2
@@ -31,7 +31,7 @@ if not DATABASE_URL:
 
 # Supabase free tier allows ~15 connections total across ALL services.
 # Keep pool small so monitor + dashboard can coexist safely.
-_pool: pool.ThreadedConnectionPool | None = None
+_pool: Optional[pool.ThreadedConnectionPool] = None
 _POOL_MIN = 1
 _POOL_MAX = 5   # conservative — leaves headroom for dashboard connections
 

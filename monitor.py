@@ -16,6 +16,7 @@ import os
 import time
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Optional
 
 from web3 import Web3
 from dotenv import load_dotenv
@@ -59,7 +60,7 @@ def _build_web3() -> Web3:
         time.sleep(10)
 
 
-def _format_tx(raw_tx) -> dict | None:
+def _format_tx(raw_tx) -> Optional[dict]:
     """Convert a raw transaction object into a plain dict, or None on error."""
     try:
         value_wei     = raw_tx.get("value", 0) or 0

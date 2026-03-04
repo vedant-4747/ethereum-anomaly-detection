@@ -56,7 +56,7 @@ class AnomalyDetector:
         self._high_gas_limit    = int(os.getenv("HIGH_GAS_LIMIT",       5_000_000))
 
         # Register rules in one place — easy to extend
-        self._rules: list[Callable[[TransactionContext], Optional[AnomalyResult]]] = [
+        self._rules: List[Callable[[TransactionContext], Optional[AnomalyResult]]] = [
             self._rule_high_value,
             self._rule_high_gas_price,
             self._rule_suspicious_contract_interaction,
@@ -128,8 +128,9 @@ class AnomalyDetector:
             to_address     = tx.get("to",   "Unknown"),
         )
 
-        hits: list[AnomalyResult] = [
-            result for rule in self._rules if (result := rule(ctx)) is not None
+        hits: List[AnomalyResult] = [
+            result for rule in self._rules
+            for result in [rule(ctx)] if result is not None
         ]
 
         if not hits:
