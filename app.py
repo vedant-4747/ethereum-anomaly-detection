@@ -2,13 +2,13 @@
 app.py — Streamlit dashboard for Ethereum On-chain Anomaly Detection.
 """
 
-import time
-import base64
+import datetime
 from dotenv import load_dotenv
 load_dotenv(override=True)   # Always read .env before anything else
 
 import streamlit as st
 import pandas as pd
+from streamlit_autorefresh import st_autorefresh   # Non-blocking refresh
 import database
 
 # ─── Page config (MUST be first Streamlit call) ───────────────────────
@@ -22,6 +22,8 @@ st.set_page_config(
 database.init_db()
 
 # ─── Helpers ──────────────────────────────────────────────────────────
+import base64
+
 def _img_b64(path: str) -> str:
     try:
         with open(path, "rb") as f:
@@ -163,12 +165,24 @@ hr { border-color: rgba(164,94,229,.15) !important; margin: 8px 0 20px !importan
     animation: pulse 2s infinite;
     font-weight: 700;
 }
+
+/* Last-updated pill */
+.ts-pill {
+    display: inline-block;
+    background: rgba(138,43,226,.18);
+    border: 1px solid rgba(164,94,229,.35);
+    border-radius: 999px;
+    padding: 2px 12px;
+    font-size: .72rem;
+    color: #b8a8d8;
+    margin-left: 10px;
+}
 </style>
 """, unsafe_allow_html=True)
 
 # ─── Session state init ───────────────────────────────────────────────
 if "page" not in st.session_state:
-    st.session_state.page = "Home"
+    st.session_state.page = "🏠 Home"
 
 # ─── Nav definition ───────────────────────────────────────────────────
 NAV_LABELS = ["🏠 Home", "🚨 Anomalies", "📊 Stats", "ℹ️ About", "⚙️ How It Works", "❓ FAQ"]
@@ -214,26 +228,43 @@ with st.sidebar:
     st.markdown("**Data source:** `PostgreSQL (Supabase)`")
     st.markdown("[Etherscan](https://etherscan.io)")
 
-# ─── Shared data fetch ────────────────────────────────────────────────
-@st.cache_data(ttl=5)
+# ─── Non-blocking auto-refresh ────────────────────────────────────────
+# st_autorefresh fires a rerun every `refresh_rate * 1000` ms without
+# blocking the UI thread. Returns the incremental refresh counter.
+current_page = st.session_state.get("page", "🏠 Home")
+LIVE_PAGES   = {"🏠 Home", "🚨 Anomalies", "📊 Stats"}
+
+if auto_refresh and current_page in LIVE_PAGES:
+    st_autorefresh(interval=refresh_rate * 1000, key="live_refresh")
+
+# ─── Cached data fetchers (TTL tied to refresh interval) ──────────────
+# These are defined as functions and called INSIDE each page function
+# so Streamlit re-evaluates the cache on every rerun cycle.
+
+@st.cache_data(ttl=refresh_rate)
 def fetch_stats():
     return database.get_stats()
 
-stats    = fetch_stats()
-total    = stats.get("total_anomalies", 0)
-by_type  = stats.get("anomalies_by_type", {})
-high_cnt = by_type.get("High Value Transfer", 0)
-med_cnt  = sum(v for k, v in by_type.items() if "Gas" in k or "Contract" in k)
-
-@st.cache_data(ttl=5)
-def fetch_recent_anomalies(limit):
+@st.cache_data(ttl=refresh_rate)
+def fetch_recent_anomalies(limit: int):
     return database.get_recent_anomalies(limit=limit)
+
+def _last_updated_pill() -> str:
+    now = datetime.datetime.utcnow().strftime("%H:%M:%S UTC")
+    return f'<span class="ts-pill">🕒 Updated {now}</span>'
 
 # ═══════════════════════════════════════════════════════════════════════
 # PAGE FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════
 
 def page_home():
+    # ── fetch data fresh on every render ──
+    stats   = fetch_stats()
+    total   = stats.get("total_anomalies", 0)
+    by_type = stats.get("anomalies_by_type", {})
+    high_cnt = by_type.get("High Value Transfer", 0)
+    med_cnt  = sum(v for k, v in by_type.items() if "Gas" in k or "Contract" in k)
+
     hero_l, hero_r = st.columns([1, 1], gap="large")
 
     with hero_l:
@@ -292,7 +323,7 @@ def page_home():
         if st.button("🚀 VIEW ANOMALIES", key="lower_view", use_container_width=True):
             st.session_state.page = "🚨 Anomalies"
             st.rerun()
-        st.caption("Connects to Ethereum Mainnet · SQLite local store")
+        st.caption("Connects to Ethereum Mainnet · PostgreSQL (Supabase)")
 
     with low_r:
         st.markdown("""
@@ -324,12 +355,19 @@ def page_home():
 
 
 def page_anomalies():
+    # ── fetch data fresh on every render ──
+    stats    = fetch_stats()
+    total    = stats.get("total_anomalies", 0)
+    by_type  = stats.get("anomalies_by_type", {})
+    high_cnt = by_type.get("High Value Transfer", 0)
+    med_cnt  = sum(v for k, v in by_type.items() if "Gas" in k or "Contract" in k)
+
     st.markdown(
         '## 🚨 Recent Anomalous Transactions '
-        '<span class="live">LIVE</span>',
+        '<span class="live">LIVE</span>' + _last_updated_pill(),
         unsafe_allow_html=True,
     )
-    st.caption("Real-time feed from the Ethereum mainnet monitor.")
+    st.caption(f"Real-time feed from the Ethereum mainnet monitor. Auto-refresh every {refresh_rate}s.")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("🚨 Total Anomalies", total)
@@ -387,7 +425,17 @@ def page_anomalies():
 
 
 def page_stats():
-    st.markdown("## 📊 Anomaly Distribution")
+    # ── fetch data fresh on every render ──
+    stats   = fetch_stats()
+    by_type = stats.get("anomalies_by_type", {})
+    total   = stats.get("total_anomalies", 0)
+
+    st.markdown(
+        "## 📊 Anomaly Distribution " + _last_updated_pill(),
+        unsafe_allow_html=True,
+    )
+    st.caption(f"Total anomalies detected: **{total}** · Auto-refresh every {refresh_rate}s.")
+
     if by_type:
         chart_df = (
             pd.DataFrame(list(by_type.items()), columns=["Type", "Count"])
@@ -406,7 +454,7 @@ def page_about():
 - Connects live to the Ethereum mainnet via Web3 RPC
 - Downloads each new block and scans **every transaction**
 - Flags **High Value Transfers**, **High Gas Price** spikes, and **Suspicious Contract Interactions**
-- Persists findings in a local SQLite database
+- Persists findings in a PostgreSQL (Supabase) database
 - Surfaces results through this real-time Streamlit dashboard
 
 Built as an open-source research tool for on-chain security researchers and DeFi protocol teams.
@@ -420,10 +468,10 @@ def page_how():
 
 | Step | Component | Role |
 |---|---|---|
-| 1 | `monitor.py` | Connects to Ethereum RPC, subscribes to new blocks |
+| 1 | `monitor.py` | Connects to Ethereum RPC, polls for new blocks every 4 s |
 | 2 | `detector.py` | Applies rule-based anomaly checks |
-| 3 | `database.py` | Persists flagged transactions to SQLite |
-| 4 | `app.py` | Reads DB and renders this dashboard |
+| 3 | `database.py` | Persists flagged transactions to PostgreSQL |
+| 4 | `app.py` | Reads DB and renders this dashboard (auto-refresh) |
 
 ### Anomaly Types Detected
 
@@ -442,36 +490,32 @@ def page_faq():
     with st.expander("How do I change detection thresholds?"):
         st.write("Edit `HIGH_VALUE_THRESHOLD` and `HIGH_GAS_PRICE_THRESHOLD` in `.env` and restart `monitor.py`.")
     with st.expander("Can I deploy this publicly?"):
-        st.write("Yes! Upload to GitHub, deploy `app.py` on Streamlit Community Cloud, and run `monitor.py` on a VPS.")
+        st.write("Yes! Upload to GitHub, deploy `app.py` as a Web Service on Render, and run `monitor.py` as a Background Worker.")
     with st.expander("What does the scanning bar mean?"):
         st.write("It's a visual indicator that the dashboard is polling the database. The actual scanning happens in `monitor.py`.")
+    with st.expander("Why do I see old data sometimes?"):
+        st.write(f"The cache TTL is tied to your refresh slider ({refresh_rate}s). Data updates every {refresh_rate}s automatically.")
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Router
 # ═══════════════════════════════════════════════════════════════════════
 PAGE_MAP = {
-    "🏠 Home":           page_home,
-    "🚨 Anomalies":     page_anomalies,
-    "📊 Stats":          page_stats,
-    "ℹ️ About":         page_about,
-    "⚙️ How It Works":  page_how,
-    "❓ FAQ":            page_faq,
+    "🏠 Home":          page_home,
+    "🚨 Anomalies":    page_anomalies,
+    "📊 Stats":         page_stats,
+    "ℹ️ About":        page_about,
+    "⚙️ How It Works": page_how,
+    "❓ FAQ":           page_faq,
 }
 
-current = st.session_state.get("page", "🏠 Home")
-render_fn = PAGE_MAP.get(current, page_home)
+render_fn = PAGE_MAP.get(current_page, page_home)
+render_fn()
 
-placeholder = st.empty()
-
-if auto_refresh and current in ("🏠 Home", "🚨 Anomalies", "📊 Stats"):
-    with placeholder.container():
-        render_fn()
-    time.sleep(refresh_rate)
-    st.rerun()
-else:
-    with placeholder.container():
-        render_fn()
-    if current in ("🏠 Home", "🚨 Anomalies", "📊 Stats"):
-        if st.button("🔄 Refresh Now", key="manual_refresh"):
-            st.rerun()
+# Manual refresh button when Live toggle is off
+if not auto_refresh and current_page in LIVE_PAGES:
+    st.divider()
+    if st.button("🔄 Refresh Now", key="manual_refresh"):
+        fetch_stats.clear()
+        fetch_recent_anomalies.clear()
+        st.rerun()

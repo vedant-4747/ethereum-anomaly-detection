@@ -119,7 +119,10 @@ def main() -> None:
     detector = AnomalyDetector()
     database.init_db()
 
-    last_processed = w3.eth.block_number
+    last_processed  = w3.eth.block_number
+    last_heartbeat  = time.time()
+    HEARTBEAT_EVERY = 60   # seconds
+
     logger.info("Starting monitor from block %d …", last_processed)
 
     while True:
@@ -127,6 +130,8 @@ def main() -> None:
             latest = w3.eth.block_number
             if latest > last_processed:
                 blocks_to_process = list(range(last_processed + 1, latest + 1))
+                logger.info("New blocks detected: %d → %d (%d blocks)",
+                            last_processed + 1, latest, len(blocks_to_process))
                 # Process blocks concurrently to speed up sync
                 with ThreadPoolExecutor(max_workers=5) as executor:
                     futures = [
@@ -139,9 +144,16 @@ def main() -> None:
                         except Exception as exc:
                             logger.error("Error processing block in thread: %s", exc)
                 last_processed = latest
+                last_heartbeat = time.time()
             else:
-                # Ethereum block time ≈ 12 s; polling every 10 s keeps lag minimal
-                time.sleep(10)
+                # Poll every 4 s — Ethereum block time ≈ 12 s, so worst-case lag is ~4 s
+                time.sleep(4)
+
+            # Periodic heartbeat so the process doesn't look stuck in hosted runners
+            if time.time() - last_heartbeat >= HEARTBEAT_EVERY:
+                logger.info("Heartbeat — latest block: %d, last processed: %d",
+                            latest, last_processed)
+                last_heartbeat = time.time()
 
         except KeyboardInterrupt:
             logger.info("Monitor stopped by user.")
