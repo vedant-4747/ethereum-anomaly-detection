@@ -1,10 +1,10 @@
 # render.yaml — Render Blueprint for ETHWatch
 # Deploy at: https://dashboard.render.com/select-repo → New Blueprint
 #
-# This file deploys TWO services from the same repo:
+# THREE services from the same repo:
 #   1. eth-anomaly-dashboard  — Streamlit UI (Web Service, publicly accessible)
-#   2. eth-anomaly-monitor    — Block scanner (Background Worker, 24/7)
-# Both share the same Supabase PostgreSQL database.
+#   2. eth-anomaly-monitor    — Block scanner (Web Service with health check, keeps it alive)
+#   3. eth-keepalive-cron     — Cron job: pings both services every 5 min to prevent sleep
 
 services:
 
@@ -14,8 +14,6 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    # $PORT is injected by Render; --server.address 0.0.0.0 makes
-    # Streamlit listen on all interfaces so Render's proxy can reach it.
     startCommand: >-
       python -m streamlit run app.py
       --server.port $PORT
@@ -26,9 +24,9 @@ services:
     healthCheckPath: /
     envVars:
       - key: ETH_RPC_URL
-        sync: false                     # Set manually in Render dashboard
+        sync: false
       - key: DATABASE_URL
-        sync: false                     # Set manually in Render dashboard
+        sync: false
       - key: HIGH_VALUE_THRESHOLD
         value: "10"
       - key: HIGH_GAS_PRICE_THRESHOLD
@@ -36,21 +34,55 @@ services:
       - key: PYTHON_VERSION
         value: "3.10.0"
 
-  # ── 2. Monitor Background Worker ─────────────────────────────────────
-  - type: worker
+  # ── 2. Monitor (Web Service with built-in /health endpoint) ───────────
+  # Running as a Web Service (not a worker) so Render actively health-checks
+  # it via HTTP and auto-restarts it on failure — far more reliable than a
+  # background worker on the free tier.
+  - type: web
     name: eth-anomaly-monitor
     runtime: python
-    plan: free                          # Upgrade for guaranteed uptime
+    plan: free
     buildCommand: pip install -r requirements.txt
     startCommand: python monitor.py
+    healthCheckPath: /
     envVars:
       - key: ETH_RPC_URL
-        sync: false                     # Set manually in Render dashboard
+        sync: false
       - key: DATABASE_URL
-        sync: false                     # Set manually in Render dashboard
+        sync: false
       - key: HIGH_VALUE_THRESHOLD
         value: "10"
       - key: HIGH_GAS_PRICE_THRESHOLD
         value: "100"
+      - key: PYTHON_VERSION
+        value: "3.10.0"
+
+  # ── 3. Keep-Alive Cron (pings both services every 5 min) ──────────────
+  # Render free Web Services sleep after 15 min of inactivity.
+  # This cron wakes them both up every 5 minutes so they stay warm.
+  - type: cron
+    name: eth-keepalive-cron
+    runtime: python
+    plan: free
+    schedule: "*/5 * * * *"   # every 5 minutes
+    buildCommand: pip install requests
+    startCommand: >-
+      python -c "
+      import requests, sys
+      urls = [
+        'https://eth-anomaly-dashboard.onrender.com/',
+        'https://eth-anomaly-monitor.onrender.com/',
+      ]
+      ok = True
+      for url in urls:
+          try:
+              r = requests.get(url, timeout=20)
+              print(f'PING {url} -> {r.status_code}')
+          except Exception as e:
+              print(f'PING {url} -> ERROR: {e}')
+              ok = False
+      sys.exit(0 if ok else 1)
+      "
+    envVars:
       - key: PYTHON_VERSION
         value: "3.10.0"
