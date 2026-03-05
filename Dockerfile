@@ -1,18 +1,20 @@
-# Use the official Python image
+# ── Base image ────────────────────────────────────────────────────────
 FROM python:3.10-slim
 
-# Set working directory
 WORKDIR /app
 
 # Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy source code
+# Copy source
 COPY . .
 
-# Expose Streamlit port
-EXPOSE 8501
+# $PORT is injected by Render at runtime
+# monitor.py reads $PORT for its health HTTP server (default 10000)
+# app.py receives $PORT from Render's startCommand override
+EXPOSE 10000
 
-# Command to run (This gets overridden by docker-compose)
+# Default CMD runs the monitor; the dashboard service overrides this
+# via render.yaml startCommand / Docker Command field.
 CMD ["python", "monitor.py"]

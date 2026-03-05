@@ -2,19 +2,19 @@
 # Deploy at: https://dashboard.render.com/select-repo → New Blueprint
 #
 # THREE services from the same repo:
-#   1. eth-anomaly-dashboard  — Streamlit UI (Web Service, publicly accessible)
-#   2. eth-anomaly-monitor    — Block scanner (Web Service with health check, keeps it alive)
-#   3. eth-keepalive-cron     — Cron job: pings both services every 5 min to prevent sleep
+#   1. eth-anomaly-dashboard  — Streamlit UI  (Docker, Web Service)
+#   2. eth-anomaly-monitor    — Block scanner (Docker, Web Service + /health)
+#   3. eth-keepalive-cron     — Pings both every 5 min to prevent sleep
 
 services:
 
-  # ── 1. Streamlit Dashboard (Web Service) ──────────────────────────────
+  # ── 1. Streamlit Dashboard ────────────────────────────────────────────
   - type: web
     name: eth-anomaly-dashboard
-    runtime: python
+    runtime: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: >-
+    # Override the Dockerfile CMD to run the dashboard instead of the monitor
+    dockerCommand: >-
       python -m streamlit run app.py
       --server.port $PORT
       --server.address 0.0.0.0
@@ -31,19 +31,14 @@ services:
         value: "10"
       - key: HIGH_GAS_PRICE_THRESHOLD
         value: "100"
-      - key: PYTHON_VERSION
-        value: "3.10.0"
 
-  # ── 2. Monitor (Web Service with built-in /health endpoint) ───────────
-  # Running as a Web Service (not a worker) so Render actively health-checks
-  # it via HTTP and auto-restarts it on failure — far more reliable than a
-  # background worker on the free tier.
+  # ── 2. Monitor (Web Service — uses Dockerfile CMD: python monitor.py) ──
+  # Docker mode: no build/start command needed — Dockerfile CMD handles it.
+  # Render health-checks the /health HTTP endpoint to keep the service alive.
   - type: web
     name: eth-anomaly-monitor
-    runtime: python
+    runtime: docker
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python monitor.py
     healthCheckPath: /
     envVars:
       - key: ETH_RPC_URL
@@ -54,35 +49,17 @@ services:
         value: "10"
       - key: HIGH_GAS_PRICE_THRESHOLD
         value: "100"
-      - key: PYTHON_VERSION
-        value: "3.10.0"
 
   # ── 3. Keep-Alive Cron (pings both services every 5 min) ──────────────
-  # Render free Web Services sleep after 15 min of inactivity.
-  # This cron wakes them both up every 5 minutes so they stay warm.
   - type: cron
     name: eth-keepalive-cron
-    runtime: python
+    runtime: docker
     plan: free
-    schedule: "*/5 * * * *"   # every 5 minutes
-    buildCommand: pip install requests
-    startCommand: >-
+    schedule: "*/5 * * * *"
+    dockerCommand: >-
       python -c "
-      import requests, sys
-      urls = [
-        'https://eth-anomaly-dashboard.onrender.com/',
-        'https://eth-anomaly-monitor.onrender.com/',
-      ]
-      ok = True
-      for url in urls:
-          try:
-              r = requests.get(url, timeout=20)
-              print(f'PING {url} -> {r.status_code}')
-          except Exception as e:
-              print(f'PING {url} -> ERROR: {e}')
-              ok = False
-      sys.exit(0 if ok else 1)
+      import urllib.request;
+      urllib.request.urlopen('https://eth-anomaly-dashboard.onrender.com/', timeout=20);
+      urllib.request.urlopen('https://eth-anomaly-monitor.onrender.com/', timeout=20);
+      print('Both services pinged successfully')
       "
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.10.0"
