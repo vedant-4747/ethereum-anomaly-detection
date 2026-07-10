@@ -99,7 +99,7 @@ def get_connection():
 
 
 def init_db() -> None:
-    """Create the anomalies table and indexes if they do not already exist."""
+    """Create the anomalies table, monitor_logs table, and indexes if they do not already exist."""
     with get_connection() as conn:
         try:
             with conn.cursor() as cur:
@@ -123,6 +123,18 @@ def init_db() -> None:
                 )
                 cur.execute(
                     "CREATE INDEX IF NOT EXISTS idx_timestamp    ON anomalies(timestamp DESC);"
+                )
+                # Rolling monitor log table — keeps last 500 lines, auto-pruned
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS monitor_logs (
+                        id        SERIAL PRIMARY KEY,
+                        ts        TIMESTAMPTZ DEFAULT NOW(),
+                        level     TEXT        NOT NULL,
+                        message   TEXT        NOT NULL
+                    )
+                """)
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_log_ts ON monitor_logs(ts DESC);"
                 )
             conn.commit()
             logger.info("Database initialized successfully.")
@@ -180,6 +192,103 @@ def get_recent_anomalies(limit: int = 50) -> List[Dict[str, Any]]:
                 return [dict(row) for row in cur.fetchall()]
         except Exception as exc:
             logger.error("get_recent_anomalies failed: %s", exc)
+            return []
+
+
+def get_recent_anomalies_since(days: int = 7, limit: int = 500) -> List[Dict[str, Any]]:
+    """Return anomalies from the last `days` days, newest first."""
+    with get_connection() as conn:
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT * FROM anomalies
+                    WHERE timestamp >= NOW() - INTERVAL '1 day' * %s
+                    ORDER BY timestamp DESC
+                    LIMIT %s
+                    """,
+                    (days, limit),
+                )
+                return [dict(row) for row in cur.fetchall()]
+        except Exception as exc:
+            logger.error("get_recent_anomalies_since failed: %s", exc)
+            return []
+
+
+def get_total_anomaly_count() -> Dict[str, Any]:
+    """Return lifetime total count and breakdown by type/severity."""
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT COUNT(*) FROM anomalies")
+                total = cur.fetchone()[0]
+
+                cur.execute(
+                    "SELECT anomaly_type, COUNT(*) FROM anomalies GROUP BY anomaly_type ORDER BY COUNT(*) DESC"
+                )
+                by_type = dict(cur.fetchall())
+
+                cur.execute(
+                    "SELECT severity, COUNT(*) FROM anomalies GROUP BY severity ORDER BY COUNT(*) DESC"
+                )
+                by_severity = dict(cur.fetchall())
+
+            return {
+                "total": total,
+                "by_type": by_type,
+                "by_severity": by_severity,
+            }
+        except Exception as exc:
+            logger.error("get_total_anomaly_count failed: %s", exc)
+            return {"total": 0, "by_type": {}, "by_severity": {}}
+
+
+def insert_monitor_log(level: str, message: str) -> None:
+    """Insert one log line into monitor_logs; prune old rows beyond 500."""
+    with get_connection() as conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO monitor_logs (level, message) VALUES (%s, %s)",
+                    (level, message),
+                )
+                # Keep only the latest 500 rows to avoid unbounded growth
+                cur.execute(
+                    """
+                    DELETE FROM monitor_logs
+                    WHERE id NOT IN (
+                        SELECT id FROM monitor_logs ORDER BY ts DESC LIMIT 500
+                    )
+                    """
+                )
+            conn.commit()
+        except Exception as exc:
+            # Never let log writes crash the monitor
+            logger.debug("insert_monitor_log failed (non-fatal): %s", exc)
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+
+
+def get_monitor_logs(limit: int = 80) -> List[Dict[str, Any]]:
+    """Return the most recent monitor log lines, oldest-first for display."""
+    with get_connection() as conn:
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT ts, level, message FROM (
+                        SELECT ts, level, message FROM monitor_logs
+                        ORDER BY ts DESC LIMIT %s
+                    ) sub
+                    ORDER BY ts ASC
+                    """,
+                    (limit,),
+                )
+                return [dict(row) for row in cur.fetchall()]
+        except Exception as exc:
+            logger.error("get_monitor_logs failed: %s", exc)
             return []
 
 

@@ -17,6 +17,7 @@ import time
 import json
 import logging
 import threading
+import queue
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
@@ -35,6 +36,52 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("Monitor")
+
+
+# ------------------------------------------------------------------ #
+#  DB-backed log handler (writes log lines to Supabase monitor_logs)  #
+# ------------------------------------------------------------------ #
+
+class DBLogHandler(logging.Handler):
+    """
+    Async logging handler that queues log records and writes them to
+    the monitor_logs Supabase table in a background thread.
+    Non-blocking: the main scan loop is never delayed by DB writes.
+    """
+    _SKIP_MSGS = ("insert_monitor_log", "SELECT 1", "Stale connection")
+
+    def __init__(self):
+        super().__init__()
+        self._q: queue.Queue = queue.Queue(maxsize=200)
+        self._worker = threading.Thread(target=self._flush_loop, daemon=True)
+        self._worker.start()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        # Skip recursive DB-layer logs to prevent infinite loops
+        msg = record.getMessage()
+        if any(skip in msg for skip in self._SKIP_MSGS):
+            return
+        # Drop if queue is full (non-blocking) — never stall the monitor
+        try:
+            self._q.put_nowait((record.levelname, self.format(record)))
+        except queue.Full:
+            pass
+
+    def _flush_loop(self) -> None:
+        """Background thread: drain queue and write to DB."""
+        while True:
+            try:
+                level, message = self._q.get(timeout=5)
+                database.insert_monitor_log(level, message)
+            except queue.Empty:
+                continue
+            except Exception:
+                pass  # Never crash the background thread
+
+
+_db_log_handler = DBLogHandler()
+_db_log_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+logger.addHandler(_db_log_handler)
 
 # ------------------------------------------------------------------ #
 #  Configuration                                                      #

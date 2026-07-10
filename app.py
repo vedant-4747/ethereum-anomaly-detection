@@ -35,10 +35,19 @@ def _img_b64(path: str) -> str:
 hero_b64 = _img_b64("assets/hero.png")
 SEVERITY_COLORS = {"HIGH": "#ff4b4b", "MEDIUM": "#ffa421", "LOW": "#21c354"}
 
+LEVEL_COLORS = {
+    "INFO":    "#4df2d8",
+    "WARNING": "#ffa421",
+    "ERROR":   "#ff4b4b",
+    "DEBUG":   "#a095d5",
+    "CRITICAL":"#ff4b4b",
+}
+
 # ─── CSS ──────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* Background */
 html, body, [data-testid="stAppViewContainer"] {
@@ -178,6 +187,82 @@ hr { border-color: rgba(164,94,229,.15) !important; margin: 8px 0 20px !importan
     color: #b8a8d8;
     margin-left: 10px;
 }
+
+/* Lifetime count badge */
+.lifetime-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(135deg, rgba(138,43,226,.18), rgba(77,242,216,.08));
+    border: 1px solid rgba(164,94,229,.35);
+    border-radius: 12px;
+    padding: 10px 20px;
+    margin-bottom: 18px;
+}
+.lifetime-badge .lb-label {
+    font-size: 12px;
+    color: #a095d5;
+    font-weight: 600;
+    letter-spacing: .5px;
+    text-transform: uppercase;
+}
+.lifetime-badge .lb-count {
+    font-size: 22px;
+    font-weight: 800;
+    color: #fff;
+}
+.lifetime-badge .lb-icon { font-size: 18px; }
+
+/* ── Terminal log panel ── */
+.log-terminal {
+    background: #050c14;
+    border: 1px solid rgba(77,242,216,.25);
+    border-radius: 12px;
+    padding: 16px 18px;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.65;
+    max-height: 420px;
+    overflow-y: auto;
+    box-shadow: 0 0 30px rgba(77,242,216,.07), inset 0 0 60px rgba(0,0,0,.4);
+}
+.log-terminal::-webkit-scrollbar { width: 4px; }
+.log-terminal::-webkit-scrollbar-track { background: transparent; }
+.log-terminal::-webkit-scrollbar-thumb { background: rgba(164,94,229,.4); border-radius: 2px; }
+.log-line-INFO     { color: #4df2d8; }
+.log-line-WARNING  { color: #ffa421; }
+.log-line-ERROR    { color: #ff4b4b; }
+.log-line-CRITICAL { color: #ff4b4b; font-weight: 700; }
+.log-line-DEBUG    { color: #6a5f9e; }
+
+/* Terminal header bar */
+.term-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid rgba(77,242,216,.15);
+}
+.term-dot { width: 10px; height: 10px; border-radius: 50%; }
+.term-dot-r { background: #ff5f56; }
+.term-dot-y { background: #ffbd2e; }
+.term-dot-g { background: #27c93f; }
+.term-title { font-size: 11px; color: #6a9fb8; font-family: 'JetBrains Mono', monospace; margin-left: 6px; }
+
+/* Week badge */
+.week-badge {
+    display: inline-block;
+    background: rgba(77,242,216,.12);
+    border: 1px solid rgba(77,242,216,.3);
+    border-radius: 999px;
+    padding: 2px 12px;
+    font-size: .7rem;
+    color: #4df2d8;
+    font-weight: 600;
+    margin-left: 10px;
+    vertical-align: middle;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -186,7 +271,7 @@ if "page" not in st.session_state:
     st.session_state.page = "🏠 Home"
 
 # ─── Nav definition ───────────────────────────────────────────────────
-NAV_LABELS = ["🏠 Home", "🚨 Anomalies", "📊 Stats", "ℹ️ About", "⚙️ How It Works", "❓ FAQ"]
+NAV_LABELS = ["🏠 Home", "🚨 Anomalies", "📊 Stats", "🖥️ Live Logs", "ℹ️ About", "⚙️ How It Works", "❓ FAQ"]
 
 # ─── Navbar ───────────────────────────────────────────────────────────
 col_brand, col_nav, col_live = st.columns([1.4, 6.5, 1.1])
@@ -225,23 +310,19 @@ with st.sidebar:
         options=["HIGH", "MEDIUM", "LOW"],
         default=["HIGH", "MEDIUM", "LOW"],
     )
+    log_lines = st.slider("Log lines to show", 20, 100, 60)
     st.divider()
     st.markdown("**Data source:** `PostgreSQL (Supabase)`")
     st.markdown("[Etherscan](https://etherscan.io)")
 
 # ─── Non-blocking auto-refresh ────────────────────────────────────────
-# st_autorefresh fires a rerun every `refresh_rate * 1000` ms without
-# blocking the UI thread. Returns the incremental refresh counter.
 current_page = st.session_state.get("page", "🏠 Home")
-LIVE_PAGES   = {"🏠 Home", "🚨 Anomalies", "📊 Stats"}
+LIVE_PAGES   = {"🏠 Home", "🚨 Anomalies", "📊 Stats", "🖥️ Live Logs"}
 
 if auto_refresh and current_page in LIVE_PAGES:
     st_autorefresh(interval=refresh_rate * 1000, key="live_refresh")
 
-# ─── Cached data fetchers (TTL tied to refresh interval) ──────────────
-# These are defined as functions and called INSIDE each page function
-# so Streamlit re-evaluates the cache on every rerun cycle.
-
+# ─── Cached data fetchers ──────────────────────────────────────────────
 @st.cache_data(ttl=refresh_rate)
 def fetch_stats():
     return database.get_stats()
@@ -249,6 +330,20 @@ def fetch_stats():
 @st.cache_data(ttl=refresh_rate)
 def fetch_recent_anomalies(limit: int):
     return database.get_recent_anomalies(limit=limit)
+
+@st.cache_data(ttl=refresh_rate)
+def fetch_week_anomalies(days: int = 7, limit: int = 500):
+    """Anomalies from the last `days` days."""
+    return database.get_recent_anomalies_since(days=days, limit=limit)
+
+@st.cache_data(ttl=60)
+def fetch_lifetime_stats():
+    """Lifetime total + breakdown — cached for 60s (low priority data)."""
+    return database.get_total_anomaly_count()
+
+@st.cache_data(ttl=refresh_rate)
+def fetch_monitor_logs(limit: int = 80):
+    return database.get_monitor_logs(limit=limit)
 
 @st.cache_data(ttl=30)
 def fetch_latest_block() -> int:
@@ -275,12 +370,100 @@ def _monitor_staleness_banner(records: list) -> None:
     except Exception:
         pass
 
+
+def _lifetime_badge(lifetime: dict) -> None:
+    """Render compact lifetime count badge + collapsible expander."""
+    total = lifetime.get("total", 0)
+    by_type = lifetime.get("by_type", {})
+    by_sev  = lifetime.get("by_severity", {})
+
+    # ── Compact badge ──
+    st.markdown(
+        f'''<div class="lifetime-badge">
+  <span class="lb-icon">📦</span>
+  <div>
+    <div class="lb-label">Lifetime Total</div>
+    <div class="lb-count">{total:,}</div>
+  </div>
+  <div style="margin-left:20px;">
+    <div class="lb-label">All-time HIGH</div>
+    <div class="lb-count" style="color:#ff4b4b;">{by_sev.get("HIGH",0):,}</div>
+  </div>
+  <div style="margin-left:20px;">
+    <div class="lb-label">All-time MEDIUM</div>
+    <div class="lb-count" style="color:#ffa421;">{by_sev.get("MEDIUM",0):,}</div>
+  </div>
+</div>''',
+        unsafe_allow_html=True,
+    )
+
+    # ── Collapsible detailed breakdown ──
+    with st.expander("📊 View full lifetime breakdown", expanded=False):
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**By Type**")
+            if by_type:
+                type_df = pd.DataFrame(list(by_type.items()), columns=["Type", "Count"]).sort_values("Count", ascending=False)
+                st.dataframe(type_df, use_container_width=True, hide_index=True)
+            else:
+                st.caption("No data yet.")
+        with col_b:
+            st.markdown("**By Severity**")
+            if by_sev:
+                sev_df = pd.DataFrame(list(by_sev.items()), columns=["Severity", "Count"]).sort_values("Count", ascending=False)
+                st.dataframe(sev_df, use_container_width=True, hide_index=True)
+            else:
+                st.caption("No data yet.")
+
+
+def _render_log_terminal(logs: list, title: str = "monitor.py — Live Output") -> None:
+    """Render a terminal-style scrollable log panel."""
+    if not logs:
+        st.markdown(
+            '<div class="log-terminal">'
+            '<span style="color:#4a4060;">⏳ Waiting for monitor logs… '
+            'Logs appear here once the monitor starts running.</span>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        return
+
+    lines_html = ""
+    for row in logs:
+        ts  = pd.to_datetime(row["ts"]).strftime("%H:%M:%S")
+        lvl = row.get("level", "INFO")
+        msg = row.get("message", "")
+        # Escape HTML special chars
+        msg = msg.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        color = LEVEL_COLORS.get(lvl, "#c9bdeb")
+        lines_html += (
+            f'<div class="log-line-{lvl}">'
+            f'<span style="color:#4a4060;">{ts}</span> '
+            f'<span style="color:{color};font-weight:600;">[{lvl:8s}]</span> '
+            f'<span style="color:#c9e8d5;">{msg}</span>'
+            f'</div>'
+        )
+
+    st.markdown(
+        f'''<div>
+  <div class="term-header">
+    <div class="term-dot term-dot-r"></div>
+    <div class="term-dot term-dot-y"></div>
+    <div class="term-dot term-dot-g"></div>
+    <span class="term-title">● {title}</span>
+    <span class="live" style="margin-left:auto;">LIVE</span>
+  </div>
+  <div class="log-terminal">{lines_html}</div>
+</div>''',
+        unsafe_allow_html=True,
+    )
+
+
 # ═══════════════════════════════════════════════════════════════════════
 # PAGE FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════
 
 def page_home():
-    # ── fetch data fresh on every render ──
     stats   = fetch_stats()
     total   = stats.get("total_anomalies", 0)
     by_type = stats.get("anomalies_by_type", {})
@@ -310,8 +493,8 @@ def page_home():
                 st.session_state.page = "🚨 Anomalies"
                 st.rerun()
         with b2:
-            if st.button("📋 VIEW LOGS", key="hero_logs", use_container_width=True):
-                st.session_state.page = "🚨 Anomalies"
+            if st.button("🖥️ LIVE LOGS", key="hero_logs", use_container_width=True):
+                st.session_state.page = "🖥️ Live Logs"
                 st.rerun()
 
     with hero_r:
@@ -377,39 +560,50 @@ def page_home():
 
 
 def page_anomalies():
-    # ── fetch data fresh on every render ──
-    stats    = fetch_stats()
-    total    = stats.get("total_anomalies", 0)
-    by_type  = stats.get("anomalies_by_type", {})
-    high_cnt = by_type.get("High Value Transfer", 0)
-    med_cnt  = sum(v for k, v in by_type.items() if "Gas" in k or "Contract" in k)
+    # ── fetch data ──
+    week_records = fetch_week_anomalies(days=7, limit=max_rows)
+    lifetime     = fetch_lifetime_stats()
+    lifetime_total = lifetime.get("total", 0)
+
+    # Derive stats from lifetime
+    by_type  = lifetime.get("by_type",  {})
+    by_sev   = lifetime.get("by_severity", {})
+    high_cnt = by_sev.get("HIGH", 0)
+    med_cnt  = by_sev.get("MEDIUM", 0)
 
     st.markdown(
         '## 🚨 Recent Anomalous Transactions '
-        '<span class="live">LIVE</span>' + _last_updated_pill(),
+        '<span class="live">LIVE</span>'
+        '<span class="week-badge">📅 Last 7 Days</span>'
+        + _last_updated_pill(),
         unsafe_allow_html=True,
     )
-    st.caption(f"Real-time feed from the Ethereum mainnet monitor. Auto-refresh every {refresh_rate}s.")
+    st.caption(f"Showing anomalies from the past 7 days. Auto-refresh every {refresh_rate}s.")
 
+    # ── Lifetime badge (compact, always visible) ──
+    _lifetime_badge(lifetime)
+
+    # ── Week stats strip ──
+    week_high = sum(1 for r in week_records if r.get("severity") == "HIGH")
+    week_med  = sum(1 for r in week_records if r.get("severity") == "MEDIUM")
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("🚨 Total Anomalies", total)
-    c2.metric("🔴 High Severity",   high_cnt)
-    c3.metric("🟡 Gas / Contract",  med_cnt)
-    c4.metric("🟢 Monitor",         "Active")
+    c1.metric("📅 This Week",      len(week_records))
+    c2.metric("🔴 High (Week)",    week_high)
+    c3.metric("🟡 Medium (Week)",  week_med)
+    c4.metric("🟢 Monitor",        "Active")
 
     st.divider()
-    records = fetch_recent_anomalies(limit=max_rows)
-    _monitor_staleness_banner(records)
+    _monitor_staleness_banner(week_records)
 
-    if not records:
-        st.info("⏳ No anomalies detected yet — waiting for the monitor to find suspicious transactions.", icon="ℹ️")
+    if not week_records:
+        st.info("⏳ No anomalies detected in the last 7 days.", icon="ℹ️")
         return
 
-    df = pd.DataFrame(records)
+    df = pd.DataFrame(week_records)
     if severity_filter:
         df = df[df["severity"].isin(severity_filter)]
     if df.empty:
-        st.warning("No anomalies match the severity filter.")
+        st.warning("No anomalies match the severity filter for this week.")
         return
 
     df["timestamp"] = pd.to_datetime(df["timestamp"]).dt.strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -433,7 +627,7 @@ def page_anomalies():
     )
 
     st.divider()
-    st.subheader("🔬 Detailed View (latest 10)")
+    st.subheader("🔬 Detailed View (latest 10 this week)")
     for _, row in df.head(10).iterrows():
         with st.expander(f"{row['tx_short']}  |  {row['anomaly_type']}  |  **{row['severity']}**"):
             c1, c2 = st.columns(2)
@@ -447,8 +641,47 @@ def page_anomalies():
             st.markdown(f"[🔗 View on Etherscan](https://etherscan.io/tx/{row['tx_hash']})")
 
 
+def page_live_logs():
+    st.markdown(
+        '## 🖥️ Live Monitor Logs '
+        '<span class="live">LIVE</span>'
+        + _last_updated_pill(),
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        f"Real-time stdout from `monitor.py` — stored in Supabase `monitor_logs` table. "
+        f"Showing last {log_lines} lines. Auto-refresh every {refresh_rate}s."
+    )
+
+    logs = fetch_monitor_logs(limit=log_lines)
+    _render_log_terminal(logs, title="monitor.py — Live Output")
+
+    st.divider()
+    # ── Mini stats below logs ──
+    if logs:
+        errors   = sum(1 for l in logs if l.get("level") in ("ERROR", "CRITICAL"))
+        warnings = sum(1 for l in logs if l.get("level") == "WARNING")
+        infos    = sum(1 for l in logs if l.get("level") == "INFO")
+        last_ts  = pd.to_datetime(logs[-1]["ts"]).strftime("%Y-%m-%d %H:%M:%S UTC") if logs else "—"
+
+        lc1, lc2, lc3, lc4 = st.columns(4)
+        lc1.metric("📋 Lines Shown",    len(logs))
+        lc2.metric("ℹ️ INFO",           infos)
+        lc3.metric("⚠️ Warnings",       warnings, delta=f"-{warnings}" if warnings else None,
+                   delta_color="inverse" if warnings else "off")
+        lc4.metric("🔴 Errors",         errors,   delta=f"-{errors}" if errors else None,
+                   delta_color="inverse" if errors else "off")
+
+        st.caption(f"Last log entry at: **{last_ts}**")
+    else:
+        st.info(
+            "📭 No logs yet. The monitor writes logs here once it starts running on Render. "
+            "Make sure `eth-anomaly-monitor` is deployed and the DB is reachable.",
+            icon="ℹ️",
+        )
+
+
 def page_stats():
-    # ── fetch data fresh on every render ──
     stats   = fetch_stats()
     by_type = stats.get("anomalies_by_type", {})
     total   = stats.get("total_anomalies", 0)
@@ -479,6 +712,7 @@ def page_about():
 - Flags **High Value Transfers**, **High Gas Price** spikes, and **Suspicious Contract Interactions**
 - Persists findings in a PostgreSQL (Supabase) database
 - Surfaces results through this real-time Streamlit dashboard
+- Streams real-time monitor logs to the **Live Logs** tab via Supabase
 
 Built as an open-source research tool for on-chain security researchers and DeFi protocol teams.
     """)
@@ -493,7 +727,7 @@ def page_how():
 |---|---|---|
 | 1 | `monitor.py` | Connects to Ethereum RPC, polls for new blocks every 4 s |
 | 2 | `detector.py` | Applies rule-based anomaly checks |
-| 3 | `database.py` | Persists flagged transactions to PostgreSQL |
+| 3 | `database.py` | Persists flagged transactions + live logs to PostgreSQL |
 | 4 | `app.py` | Reads DB and renders this dashboard (auto-refresh) |
 
 ### Anomaly Types Detected
@@ -503,6 +737,10 @@ def page_how():
 | High Value Transfer | ETH value > `HIGH_VALUE_THRESHOLD` in `.env` |
 | High Gas Price | Gas (Gwei) > `HIGH_GAS_PRICE_THRESHOLD` in `.env` |
 | Suspicious Contract Interaction | Zero-value tx with very high gas limit |
+
+### Live Logs
+The monitor writes its stdout to the `monitor_logs` Supabase table via a background thread.
+The **🖥️ Live Logs** tab displays up to 100 of the most recent lines, auto-refreshing every {refresh_rate}s.
     """)
 
 
@@ -518,6 +756,12 @@ def page_faq():
         st.write("It's a visual indicator that the dashboard is polling the database. The actual scanning happens in `monitor.py`.")
     with st.expander("Why do I see old data sometimes?"):
         st.write(f"The cache TTL is tied to your refresh slider ({refresh_rate}s). Data updates every {refresh_rate}s automatically.")
+    with st.expander("What is the 'Last 7 Days' filter on the Anomalies page?"):
+        st.write("The Anomalies table only shows transactions flagged in the past 7 days for clarity. The compact 'Lifetime Total' badge above the table shows all-time counts. Click it to expand the full breakdown.")
+    with st.expander("Where are the Live Logs coming from?"):
+        st.write("monitor.py sends every log line to the Supabase `monitor_logs` table via a background thread. The Live Logs tab reads from there — no direct process access needed.")
+    with st.expander("How do I keep the monitor running 24/7 for free?"):
+        st.write("Sign up for UptimeRobot (free) at https://uptimerobot.com and add your Render monitor URL as an HTTP monitor. It will ping every 5 minutes from external servers, keeping Render from sleeping the service.")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -527,6 +771,7 @@ PAGE_MAP = {
     "🏠 Home":          page_home,
     "🚨 Anomalies":    page_anomalies,
     "📊 Stats":         page_stats,
+    "🖥️ Live Logs":    page_live_logs,
     "ℹ️ About":        page_about,
     "⚙️ How It Works": page_how,
     "❓ FAQ":           page_faq,
@@ -541,4 +786,7 @@ if not auto_refresh and current_page in LIVE_PAGES:
     if st.button("🔄 Refresh Now", key="manual_refresh"):
         fetch_stats.clear()
         fetch_recent_anomalies.clear()
+        fetch_week_anomalies.clear()
+        fetch_lifetime_stats.clear()
+        fetch_monitor_logs.clear()
         st.rerun()
