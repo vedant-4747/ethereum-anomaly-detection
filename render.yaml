@@ -7,11 +7,11 @@
 #   3. eth-keepalive-cron     — Pings both every 3 min to prevent sleep
 #
 # ─────────────────────────────────────────────────────────────────────
-# IMPORTANT: For true 24/7 uptime, also add an external monitor:
-#   → Sign up FREE at https://uptimerobot.com
-#   → Add HTTP monitor for: https://eth-anomaly-monitor.onrender.com/
-#   → Set check interval: Every 5 minutes
-#   → This pings from outside Render, guaranteed to never sleep.
+# IMPORTANT: For true 24/7 uptime on FREE tier, set UptimeRobot to
+# use GET method (not HEAD) to avoid 501 errors:
+#   → https://uptimerobot.com → Edit Monitor → HTTP Method: GET
+#   → URL: https://eth-anomaly-monitor.onrender.com/
+#   → Check interval: Every 5 minutes
 # ─────────────────────────────────────────────────────────────────────
 
 services:
@@ -22,7 +22,6 @@ services:
     runtime: docker
     plan: free
     autoDeploy: true
-    # Override the Dockerfile CMD to run the dashboard instead of the monitor
     dockerCommand: >-
       python -m streamlit run app.py
       --server.port $PORT
@@ -41,9 +40,7 @@ services:
       - key: HIGH_GAS_PRICE_THRESHOLD
         value: "100"
 
-  # ── 2. Monitor (Web Service — uses Dockerfile CMD: python monitor.py) ──
-  # Docker mode: no build/start command needed — Dockerfile CMD handles it.
-  # Render health-checks the /health HTTP endpoint to keep the service alive.
+  # ── 2. Monitor (Web Service — health endpoint handles GET + HEAD + POST) ──
   - type: web
     name: eth-anomaly-monitor
     runtime: docker
@@ -60,28 +57,10 @@ services:
       - key: HIGH_GAS_PRICE_THRESHOLD
         value: "100"
 
-  # ── 3. Keep-Alive Cron (pings both services every 3 min) ─────────────
-  # Increased from */5 to */3 to be more aggressive against free-tier sleep.
+  # ── 3. Keep-Alive Cron ── pings both services with GET every 3 min ────
   - type: cron
     name: eth-keepalive-cron
     runtime: docker
     plan: free
     schedule: "*/3 * * * *"
-    dockerCommand: >-
-      python -c "
-      import urllib.request, sys, time;
-      services = [
-        'https://eth-anomaly-dashboard.onrender.com/',
-        'https://eth-anomaly-monitor.onrender.com/',
-      ];
-      failed = 0;
-      for url in services:
-        try:
-          r = urllib.request.urlopen(url, timeout=25);
-          print(f'OK [{r.status}]: {url}');
-        except Exception as e:
-          print(f'FAIL: {url} — {e}', file=sys.stderr);
-          failed += 1;
-      print(f'Keep-alive done. {len(services)-failed}/{len(services)} services reachable.');
-      sys.exit(0 if failed == 0 else 1)
-      "
+    dockerCommand: python keepalive.py

@@ -104,7 +104,12 @@ _start_time: float = time.time()
 
 
 class _HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
+    """
+    Handles GET, HEAD, and POST — covers Render health checks, UptimeRobot,
+    BetterStack, and any other HTTP monitor regardless of method used.
+    """
+
+    def _send_ok(self, include_body: bool = True) -> None:
         body = json.dumps({
             **_health_status,
             "uptime_s": int(time.time() - _start_time),
@@ -113,18 +118,41 @@ class _HealthHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        if include_body:
+            self.wfile.write(body)
 
-    # Silence the default per-request access log
+    # GET — full JSON body (Render uses this)
+    def do_GET(self):
+        self._send_ok(include_body=True)
+
+    # HEAD — headers only, NO body (UptimeRobot default)
+    def do_HEAD(self):
+        self._send_ok(include_body=False)
+
+    # POST — some uptime checkers send POST
+    def do_POST(self):
+        # Drain any request body so the connection stays clean
+        length = int(self.headers.get("Content-Length", 0))
+        if length:
+            self.rfile.read(length)
+        self._send_ok(include_body=True)
+
+    # Silence access logs — keep stdout clean for real monitor logs
     def log_message(self, fmt, *args):   # noqa: N802
+        pass
+
+    # Suppress BrokenPipe / ConnectionReset tracebacks on client disconnect
+    def handle_error(self, request, client_address):
         pass
 
 
 def _start_health_server() -> None:
-    """Start the health HTTP server in a daemon thread."""
+    """Start the health HTTP server in a daemon thread with SO_REUSEADDR."""
+    import socket
     try:
         srv = HTTPServer(("0.0.0.0", HEALTH_PORT), _HealthHandler)
-        logger.info("Health server listening on port %d", HEALTH_PORT)
+        srv.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        logger.info("Health server listening on port %d (GET/HEAD/POST supported)", HEALTH_PORT)
         srv.serve_forever()
     except Exception as exc:
         logger.error("Health server failed: %s", exc)
